@@ -1,4 +1,4 @@
-# HEIC to JPEG Converter
+# HEIC to JPG Converter
 
 A small bash script for converting `.heic` and `.heif` images to JPEG with ImageMagick.
 
