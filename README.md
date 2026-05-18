@@ -2,7 +2,7 @@
 
 A small bash script for converting `.heic` and `.heif` images to JPEG with ImageMagick.
 
-This script is designed for quick photo cleanup job: point it at a folder, optionally recurse through subfolders, choose an output directory, decide how existing files should be handled, and delete originals only after successful conversion.
+This script is designed for quick photo cleanup jobs: point it at a folder, optionally recurse through subfolders, choose an output directory, decide how existing files should be handled, and delete originals only after successful conversion.
 
 ## Features
 
