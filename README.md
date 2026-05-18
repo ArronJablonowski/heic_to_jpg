@@ -114,12 +114,3 @@ Use non-interactive deletion for automation:
 
 The script uses ImageMagick's `magick` command instead of `mogrify` so each output path can be chosen deliberately. That makes dry runs, mirrored output folders, collision handling, percentage scaling, and safe deletion easier to reason about.
 
-## Testing
-
-Run the smoke test:
-
-```bash
-./tests/smoke.sh
-```
-
-The test creates temporary image fixtures, runs dry-run and real recursive conversions, verifies mirrored output paths, and confirms that the result is a JPEG.
