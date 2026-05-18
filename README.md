@@ -8,7 +8,7 @@ This script is designed for quick photo cleanup jobs: point it at a folder, opti
 
 - Converts `.heic`, `.HEIC`, `.heif`, and `.HEIF` files.
 - Supports single-folder or recursive conversion.
-- Writes JPEGs beside the originals or mirrors the folder structure into an output directory.
+- Writes JPGs beside the originals or mirrors the folder structure into an output directory.
 - Handles existing output files with `skip`, `overwrite`, or `rename`.
 - Optional JPEG quality, percentage scaling, advanced resize geometry, metadata stripping, and timestamp preservation.
 - Dry-run mode for checking exactly what will happen.
