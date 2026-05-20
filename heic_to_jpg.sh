@@ -9,6 +9,8 @@ set -euo pipefail
 
 VERSION="1.0.0"
 
+# Runtime configuration. These defaults are overridden by parse_args after
+# startup, then normalized and validated before any filesystem changes happen.
 INPUT_DIR="."
 OUTPUT_DIR=""
 RECURSIVE=0
@@ -25,6 +27,9 @@ RESIZE=""
 SCALE=""
 
 SCRIPT_NAME="$(basename "$0")"
+
+# Temporary NUL-delimited list of source files converted successfully. Keeping
+# this separate from counters lets deletion target only files ImageMagick wrote.
 SUCCESS_LIST=""
 
 usage() {
@@ -81,6 +86,8 @@ die() {
 }
 
 cleanup() {
+  # The success list may contain filenames with spaces or newlines, so the file
+  # is removed wholesale instead of trying to inspect its contents here.
   if [[ -n "$SUCCESS_LIST" && -f "$SUCCESS_LIST" ]]; then
     rm -f "$SUCCESS_LIST"
   fi
@@ -99,12 +106,15 @@ is_integer() {
 }
 
 is_positive_percentage() {
+  # Accept values like 50, 125, or 12.5%, but reject zero and blank strings.
   local value="${1%%%}"
   [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
   [[ "${value//[0.]/}" != "" ]]
 }
 
 absolute_path() {
+  # Resolve paths before conversion so later prefix checks and output mirroring
+  # compare canonical absolute paths instead of user-provided spellings.
   local path="$1"
   local dir
   local base
@@ -119,6 +129,8 @@ absolute_path() {
 }
 
 relative_to_input() {
+  # When a separate output directory is used, preserve the source tree below
+  # INPUT_DIR. If a path somehow falls outside it, fall back to the basename.
   local source="$1"
   local prefix="$INPUT_DIR/"
 
@@ -143,6 +155,8 @@ ensure_directory() {
 }
 
 unique_destination() {
+  # Collision mode "rename" appends a numeric suffix until an unused path is
+  # found, leaving existing files untouched.
   local dest="$1"
   local base="${dest%.*}"
   local ext="${dest##*.}"
@@ -158,6 +172,8 @@ unique_destination() {
 }
 
 destination_for() {
+  # With --output, mirror the source-relative path into OUTPUT_DIR. Without it,
+  # place the JPEG beside the source image.
   local source="$1"
   local rel
   local rel_no_ext
@@ -175,6 +191,8 @@ destination_for() {
 }
 
 confirm() {
+  # --yes is intentionally narrow: it only bypasses prompts this script owns,
+  # which currently means deletion of successfully converted originals.
   local prompt="$1"
   local reply
 
@@ -191,6 +209,8 @@ confirm() {
 }
 
 parse_args() {
+  # Manual parsing keeps this script dependency-free and supports both
+  # "--flag value" and "--flag=value" forms for options that take values.
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -i|--input)
@@ -307,6 +327,8 @@ parse_args() {
 }
 
 validate_config() {
+  # Normalize user input before any conversion starts so downstream functions
+  # can rely on absolute paths and validated option values.
   require_command magick
 
   [[ -d "$INPUT_DIR" ]] || die "Input directory does not exist: $INPUT_DIR"
@@ -320,6 +342,7 @@ validate_config() {
   [[ "$QUALITY" -ge 1 && "$QUALITY" -le 100 ]] || die "Quality must be between 1 and 100."
 
   if [[ -n "$SCALE" ]]; then
+    # Store the numeric portion only; convert_one appends the ImageMagick "%".
     is_positive_percentage "$SCALE" || die "Scale must be a positive percentage, such as 50, 125, or 12.5%."
     SCALE="${SCALE%%%}"
   fi
@@ -347,6 +370,10 @@ validate_config() {
 }
 
 convert_one() {
+  # Return codes are meaningful to main:
+  #   0 = converted or would convert
+  #   1 = conversion failed
+  #   2 = skipped because the destination already exists
   local source="$1"
   local dest
   local dest_dir
@@ -371,12 +398,16 @@ convert_one() {
   dest_dir="$(dirname "$dest")"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
+    # Dry runs report the final destination after conflict handling, but do not
+    # create output directories or invoke ImageMagick.
     printf 'would convert: %s -> %s\n' "$source" "$dest"
     return 0
   fi
 
   ensure_directory "$dest_dir"
 
+  # Build the command as an array so spaces, quotes, and shell metacharacters in
+  # filenames or ImageMagick geometry values are passed safely.
   cmd=(magick "$source" -auto-orient -quality "$QUALITY")
   if [[ -n "$SCALE" ]]; then
     cmd+=(-resize "${SCALE}%")
@@ -397,6 +428,8 @@ convert_one() {
     if [[ "$KEEP_DATES" -eq 1 ]]; then
       touch -r "$source" "$dest"
     fi
+    # Record the original with a NUL terminator so deletion can handle any valid
+    # filename except the NUL byte Bash and POSIX paths cannot contain anyway.
     printf '%s\0' "$source" >> "$SUCCESS_LIST"
     printf 'done: %s -> %s\n' "$source" "$dest"
     return 0
@@ -407,6 +440,8 @@ convert_one() {
 }
 
 find_sources() {
+  # Always emit NUL-delimited paths. Recursive mode delegates matching to find;
+  # single-directory mode uses Bash globs so the order remains shell-natural.
   local source
 
   if [[ "$RECURSIVE" -eq 1 ]]; then
@@ -421,6 +456,8 @@ find_sources() {
 }
 
 delete_successful_originals() {
+  # Originals are eligible for deletion only after a successful real conversion,
+  # and only when the user explicitly requested deletion.
   local source
   local deleted=0
 
@@ -442,6 +479,8 @@ delete_successful_originals() {
 }
 
 main() {
+  # Keep separate counts for discovery, conversion, conflict skips, and failures
+  # so the final summary reflects what actually happened.
   local source
   local converted=0
   local skipped=0
@@ -454,6 +493,8 @@ main() {
 
   SUCCESS_LIST="$(mktemp "${TMPDIR:-/tmp}/heic-to-jpg.XXXXXX")"
 
+  # Echo the resolved paths before work begins; this is especially useful when
+  # callers pass relative input or output directories.
   log "Input: $INPUT_DIR"
   if [[ -n "$OUTPUT_DIR" ]]; then
     log "Output: $OUTPUT_DIR"
@@ -466,6 +507,8 @@ main() {
     if convert_one "$source"; then
       converted=$((converted + 1))
     else
+      # convert_one uses status 2 for an intentional skip, while other non-zero
+      # statuses count as failures and cause the script to exit unsuccessfully.
       status=$?
       if [[ "$status" -eq 2 ]]; then
         skipped=$((skipped + 1))
